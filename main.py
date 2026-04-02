@@ -11,7 +11,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# Enable CORS for GitHub Pages
+# Enable CORS for your GitHub Pages frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,21 +20,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Client
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+# FIXED: Initialize Client with 'v1' to avoid the 404 NOT_FOUND error in your logs
+client = genai.Client(
+    api_key=os.environ.get("GEMINI_API_KEY"),
+    http_options={'api_version': 'v1'}
+)
 
-# Define the Personality/System Instruction
+# Personality for SAZUG Assistant
 SYSTEM_PROMPT = """
-You are the SAZUG AI Assistant, a friendly and helpful academic companion for students at Sa'adu Zungur University (SAZUG) in Bauchi State, Nigeria. 
-Your tone is peer-to-peer—like a knowledgeable friend explaining things the night before an exam. 
-Use simple English and clear, step-by-step definitions. 
-If asked about past questions, school fees, or the creator, provide helpful guidance based on the university's context.
-Always be encouraging and supportive!
+You are the SAZUG AI Assistant for Sa'adu Zungur University students. 
+Explain things like a close friend the night before exams. 
+Use simple English, be encouraging, and focus on helping with SAZUG academic topics.
 """
 
 @app.get("/")
 async def root():
-    return {"status": "SAZUG AI is Live"}
+    return {"status": "SAZUG AI Backend is Live and Stable"}
 
 @app.post("/")
 async def chat_endpoint(
@@ -47,42 +48,46 @@ async def chat_endpoint(
     if text:
         contents.append(text)
     
-    # Process up to 3 files from the frontend
+    # Process files (Images, PDFs, etc.)
     for upload_file in [file_0, file_1, file_2]:
         if upload_file:
-            file_bytes = await upload_file.read()
-            contents.append(
-                types.Part.from_bytes(
-                    data=file_bytes,
-                    mime_type=upload_file.content_type
+            try:
+                file_bytes = await upload_file.read()
+                contents.append(
+                    types.Part.from_bytes(
+                        data=file_bytes,
+                        mime_type=upload_file.content_type
+                    )
                 )
-            )
+            except Exception as e:
+                print(f"File error: {e}")
 
     if not contents:
-        raise HTTPException(status_code=400, detail="Empty request")
+        raise HTTPException(status_code=400, detail="Please provide text or a file.")
 
     async def generate_stream():
         try:
-            # We add the system_instruction here
+            # Using 'gemini-1.5-flash' on the stable v1 API
             response = client.models.generate_content_stream(
                 model='gemini-1.5-flash',
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    temperature=0.7 # Makes the tone more natural
+                    temperature=0.7
                 )
             )
             
             for chunk in response:
                 if chunk.text:
-                    # Matches your frontend line: if (line.startsWith('data: '))
+                    # SSE Format for your frontend
                     yield f"data: {chunk.text}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
-            print(f"Error: {e}")
-            yield f"data: Error: The AI service is currently busy. Please try again in a moment.\n\n"
+            # Clean error reporting back to the chat UI
+            print(f"Streaming Error: {e}")
+            yield f"data: ⚠️ Connection glitch. Please try sending your message again.\n\n"
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 

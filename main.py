@@ -20,22 +20,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# FIXED: Explicitly forcing 'v1' API and initializing with GenAI Client
+# FIXED: Explicitly forcing 'v1' API to avoid v1beta 404 errors
 client = genai.Client(
     api_key=os.environ.get("GEMINI_API_KEY"),
     http_options={'api_version': 'v1'}
 )
 
 # Personality for SAZUG Assistant
-SYSTEM_PROMPT = """
-You are the SAZUG AI Assistant for Sa'adu Zungur University students. 
-Explain things like a close friend the night before exams. 
-Use simple English, be encouraging, and focus on helping with SAZUG academic topics.
-"""
+SYSTEM_PROMPT = "You are the SAZUG AI Assistant. Use simple English and a friendly peer-to-peer tone."
 
 @app.get("/")
 async def root():
-    return {"status": "SAZUG AI Backend is Live and Stable"}
+    return {"status": "SAZUG AI Backend is Live"}
 
 @app.post("/")
 async def chat_endpoint(
@@ -48,28 +44,25 @@ async def chat_endpoint(
     if text:
         contents.append(text)
     
-    # Process files (Images, PDFs, etc.)
+    # Process files
     for upload_file in [file_0, file_1, file_2]:
         if upload_file:
-            try:
-                file_bytes = await upload_file.read()
-                contents.append(
-                    types.Part.from_bytes(
-                        data=file_bytes,
-                        mime_type=upload_file.content_type
-                    )
+            file_bytes = await upload_file.read()
+            contents.append(
+                types.Part.from_bytes(
+                    data=file_bytes,
+                    mime_type=upload_file.content_type
                 )
-            except Exception as e:
-                print(f"File error: {e}")
+            )
 
     if not contents:
         raise HTTPException(status_code=400, detail="Empty request")
 
     async def generate_stream():
         try:
-            # FIXED: Using 'gemini-2.0-flash' which is the current 2026 stable standard
+            # FIXED: Using the specific stable model ID for 2026
             response = client.models.generate_content_stream(
-                model='gemini-2.0-flash',
+                model='gemini-2.0-flash-001', 
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -79,15 +72,13 @@ async def chat_endpoint(
             
             for chunk in response:
                 if chunk.text:
-                    # Formatting for your frontend SSE handler
                     yield f"data: {chunk.text}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
-            # Error captured in Image 4 ("Connection glitch")
             print(f"Streaming Error: {e}")
-            yield f"data: ⚠️ Error: The AI is syncing. Please try sending your message again in 10 seconds.\n\n"
+            yield f"data: ⚠️ System is updating. Please try again in a moment.\n\n"
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 

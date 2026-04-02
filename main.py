@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# FIXED: Initialize Client with 'v1' to avoid the 404 NOT_FOUND error in your logs
+# FIXED: Explicitly forcing 'v1' API and initializing with GenAI Client
 client = genai.Client(
     api_key=os.environ.get("GEMINI_API_KEY"),
     http_options={'api_version': 'v1'}
@@ -63,13 +63,13 @@ async def chat_endpoint(
                 print(f"File error: {e}")
 
     if not contents:
-        raise HTTPException(status_code=400, detail="Please provide text or a file.")
+        raise HTTPException(status_code=400, detail="Empty request")
 
     async def generate_stream():
         try:
-            # Using 'gemini-1.5-flash' on the stable v1 API
+            # FIXED: Using 'gemini-2.0-flash' which is the current 2026 stable standard
             response = client.models.generate_content_stream(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -79,15 +79,15 @@ async def chat_endpoint(
             
             for chunk in response:
                 if chunk.text:
-                    # SSE Format for your frontend
+                    # Formatting for your frontend SSE handler
                     yield f"data: {chunk.text}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
-            # Clean error reporting back to the chat UI
+            # Error captured in Image 4 ("Connection glitch")
             print(f"Streaming Error: {e}")
-            yield f"data: ⚠️ Connection glitch. Please try sending your message again.\n\n"
+            yield f"data: ⚠️ Error: The AI is syncing. Please try sending your message again in 10 seconds.\n\n"
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 

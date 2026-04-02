@@ -11,7 +11,6 @@ load_dotenv()
 
 app = FastAPI()
 
-# Enable CORS for your GitHub Pages frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,13 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# FIXED: Explicitly forcing 'v1' API to avoid v1beta 404 errors
-client = genai.Client(
-    api_key=os.environ.get("GEMINI_API_KEY"),
-    http_options={'api_version': 'v1'}
-)
+# FIXED: Default initialization (no v1 forcing) allows the SDK to pick the best endpoint
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# Personality for SAZUG Assistant
 SYSTEM_PROMPT = "You are the SAZUG AI Assistant. Use simple English and a friendly peer-to-peer tone."
 
 @app.get("/")
@@ -44,7 +39,6 @@ async def chat_endpoint(
     if text:
         contents.append(text)
     
-    # Process files
     for upload_file in [file_0, file_1, file_2]:
         if upload_file:
             file_bytes = await upload_file.read()
@@ -60,9 +54,9 @@ async def chat_endpoint(
 
     async def generate_stream():
         try:
-            # FIXED: Using the specific stable model ID for 2026
+            # FIXED: Using 'gemini-2.0-flash' with no extra pathing to ensure stability
             response = client.models.generate_content_stream(
-                model='gemini-2.0-flash-001', 
+                model='gemini-2.0-flash', 
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -78,7 +72,8 @@ async def chat_endpoint(
             
         except Exception as e:
             print(f"Streaming Error: {e}")
-            yield f"data: ⚠️ System is updating. Please try again in a moment.\n\n"
+            # This will show up in your frontend if it still fails
+            yield f"data: Error: {str(e)}\n\n"
 
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
